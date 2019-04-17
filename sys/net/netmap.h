@@ -795,14 +795,16 @@ static inline void nm_stst_barrier(void)
 	/* A memory barrier with release semantic has the combined
 	 * effect of a store-store barrier and a load-store barrier,
 	 * which is fine for us. */
-	__atomic_thread_fence(__ATOMIC_RELEASE);
+	//__atomic_thread_fence(__ATOMIC_RELEASE);
+	asm volatile("mfence" ::: "memory");
 }
 static inline void nm_ldld_barrier(void)
 {
 	/* A memory barrier with acquire semantic has the combined
 	 * effect of a load-load barrier and a store-load barrier,
 	 * which is fine for us. */
-	__atomic_thread_fence(__ATOMIC_ACQUIRE);
+	//__atomic_thread_fence(__ATOMIC_ACQUIRE);
+	asm volatile("mfence" ::: "memory");
 }
 #endif /* !__KERNEL__ */
 
