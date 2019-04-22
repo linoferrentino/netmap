@@ -2495,6 +2495,7 @@ EXPORT_SYMBOL(netmap_priv_new);
 EXPORT_SYMBOL(netmap_global_lock);
 EXPORT_SYMBOL(netmap_dtor);
 EXPORT_SYMBOL(netmap_ioctl);
+EXPORT_SYMBOL(netmap_poll);
 
 MODULE_AUTHOR("http://info.iet.unipi.it/~luigi/netmap/");
 MODULE_DESCRIPTION("The netmap packet I/O framework");
