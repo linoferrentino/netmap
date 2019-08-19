@@ -625,14 +625,18 @@ generic_ndo_select_queue(struct ifnet *ifp, struct mbuf *m
 static netdev_tx_t
 generic_ndo_start_xmit(struct mbuf *m, struct ifnet *ifp)
 {
+        int res_xmit;
 	struct netmap_generic_adapter *gna =
 		(struct netmap_generic_adapter *)NA(ifp);
 
 	if (likely(m->priority == NM_MAGIC_PRIORITY_TX)) {
-		/* Reset priority, so that generic_netmap_tx_clean()
-		 * knows that it can reclaim this mbuf. */
-		m->priority = 0;
-		return gna->save_start_xmit(m, ifp); /* To the driver. */
+                res_xmit = gna->save_start_xmit(m, ifp); /* To the driver. */
+                if (likely(0 == res_xmit)) {
+                        /* Reset priority, so that generic_netmap_tx_clean()
+                        * knows that it can reclaim this mbuf. */
+                        m->priority = 0;
+                }
+                return res_xmit;
 	}
 
 	/* To a netmap RX ring. */
