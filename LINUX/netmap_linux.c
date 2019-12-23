@@ -26,6 +26,7 @@
 #include "bsd_glue.h"
 #include <linux/file.h>   /* fget(int fd) */
 
+#include <asm/types.h>
 #include <net/netmap.h>
 #include <dev/netmap/netmap_kern.h>
 #include <net/netmap_virt.h>
@@ -599,6 +600,10 @@ nm_os_catch_rx(struct netmap_generic_adapter *gna, int intercept)
 #endif /* HAVE_RX_REGISTER */
 }
 
+#ifndef NETMAP_LINUX_SELECT_QUEUE_PARM3
+#define NETMAP_LINUX_SELECT_QUEUE_PARM3 void*
+#endif /*! NETMAP_LINUX_SELECT_QUEUE_PARM3 */
+
 #ifdef NETMAP_LINUX_SELECT_QUEUE
 static u16
 generic_ndo_select_queue(struct ifnet *ifp, struct mbuf *m
@@ -625,18 +630,25 @@ generic_ndo_select_queue(struct ifnet *ifp, struct mbuf *m
 static netdev_tx_t
 generic_ndo_start_xmit(struct mbuf *m, struct ifnet *ifp)
 {
-        int res_xmit;
 	struct netmap_generic_adapter *gna =
 		(struct netmap_generic_adapter *)NA(ifp);
 
 	if (likely(m->priority == NM_MAGIC_PRIORITY_TX)) {
-                res_xmit = gna->save_start_xmit(m, ifp); /* To the driver. */
-                if (likely(0 == res_xmit)) {
-                        /* Reset priority, so that generic_netmap_tx_clean()
-                        * knows that it can reclaim this mbuf. */
-                        m->priority = 0;
-                }
-                return res_xmit;
+		netdev_tx_t ret;
+
+		/* Reset priority, so that generic_netmap_tx_clean()
+		 * knows that it can reclaim this mbuf. */
+		m->priority = 0;
+		ret = gna->save_start_xmit(m, ifp); /* To the driver. */
+		if (unlikely(ret == NETDEV_TX_BUSY)) {
+			/* The driver is busy, so the packet has not
+			 * been consumed and will be resubmitted
+			 * later. Set the priority again to our
+			 * magic value, so that it hits again
+			 * this code path. */
+			m->priority = NM_MAGIC_PRIORITY_TX;
+		}
+		return ret;
 	}
 
 	/* To a netmap RX ring. */
@@ -988,11 +1000,7 @@ nm_os_generic_xmit_frame(struct nm_os_gen_arg *a)
 
 	/* Hold a reference on this, we are going to recycle mbufs as
 	 * much as possible. */
-#ifdef NETMAP_LINUX_HAVE_REFCOUNT_T
-	refcount_inc(&m->users);
-#else  /* !NETMAP_LINUX_HAVE_REFCOUNT_T */
-	atomic_inc(&m->users);
-#endif /* !NETMAP_LINUX_HAVE_REFCOUNT_T */
+	skb_get(m);
 
 	/* On linux m->dev is not reliable, since it can be changed by the
 	 * ndo_start_xmit() callback. This happens, for instance, with veth
@@ -1217,7 +1225,11 @@ linux_netmap_poll(struct file *file, struct poll_table_struct *pwait)
 	return netmap_poll(priv, events, &sr);
 }
 
+#ifdef NETMAP_LINUX_HAVE_VMFAULT_T
+static vm_fault_t
+#else
 static int
+#endif /* NETMAP_LINUX_HAVE_VMFAULT_T */
 #ifdef NETMAP_LINUX_HAVE_FAULT_VMA_ARG
 linux_netmap_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
@@ -1240,6 +1252,7 @@ linux_netmap_fault(struct vm_fault *vmf)
 	if (!pfn_valid(pfn))
 		return VM_FAULT_SIGBUS;
 	page = pfn_to_page(pfn);
+	SetPageSwapBacked(page);
 	get_page(page);
 	vmf->page = page;
 	return 0;
@@ -1815,10 +1828,10 @@ nm_os_pt_memdev_iomap(struct ptnetmap_memdev *ptn_dev, vm_paddr_t *nm_paddr,
 		(*mem_size << 32);
 
 	nm_prinf("=== BAR %d start %llx len %llx mem_size %lx ===",
-			PTNETMAP_MEM_PCI_BAR,
-			pci_resource_start(pdev, PTNETMAP_MEM_PCI_BAR),
-			pci_resource_len(pdev, PTNETMAP_MEM_PCI_BAR),
-			(unsigned long)(*mem_size));
+	    PTNETMAP_MEM_PCI_BAR,
+	    (unsigned long long)pci_resource_start(pdev, PTNETMAP_MEM_PCI_BAR),
+	    (unsigned long long)pci_resource_len(pdev, PTNETMAP_MEM_PCI_BAR),
+	    (unsigned long)(*mem_size));
 
 	/* map memory allocator */
 	mem_paddr = pci_resource_start(pdev, PTNETMAP_MEM_PCI_BAR);

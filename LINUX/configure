@@ -280,6 +280,7 @@ replace_vars()
 		-e "s|@DESTDIR@|$DESTDIR|g" \
 		-e "s|@DEBUG@|$DEBUG|g" \
 		-e "s|@UTILS@|$UTILS|g" \
+		-e "s|@REC_DISABLED_WARNINGS@|$REC_DISABLED_WARNINGS|g" \
 		$1
 }
 
@@ -396,9 +397,9 @@ EOF
 add_named_test() {
 	{
 		cat <<EOF
-			#include <linux/module.h>
-			#include <linux/kernel.h>
-			#include <linux/init.h>
+	#include <linux/module.h>
+	#include <linux/kernel.h>
+	#include <linux/init.h>
 EOF
 		cat	# output the test code read from stdin
 	} > $TMPDIR/$1.c
@@ -442,6 +443,58 @@ reset_tests() {
 EOF
 }
 
+# run_preliminary_tests: this must be run before run_tests. It checks some
+# options related to the build system itself and sets some variables later
+# used by run_tests.
+run_preliminary_tests() {
+	{
+		cat <<EOF
+ifneq (\$(KERNELRELEASE),)
+obj-m := $TESTOBJS
+EOF
+		if [ -e $TMPDIR/extra.mk ]; then cat $TMPDIR/extra.mk; fi
+		cat <<EOF
+else
+
+all:
+	\$(MAKE) -C $ksrc M=\$\$PWD EXTRA_CFLAGS="\$(EXTRA_CFLAGS)" $kopts
+endif
+EOF
+	} > $TMPDIR/Makefile
+	NPROC=$(grep -c processor /proc/cpuinfo)
+	MAKE_OPT=-O
+	{
+		cat <<EOF
+##############################################################################
+## BEGIN RUNNING PRELIMINARY TESTS: $(date)
+##############################################################################
+## Makefile:
+EOF
+		cat $TMPDIR/Makefile
+		cat <<EOF
+##############################################################################
+EOF
+	} >> config.log
+	(
+		cd $TMPDIR
+		LANG=C make $MAKE_OPT -k -j $NPROC
+	) >> config.log
+	if grep -q ": invalid option -- 'O'" config.log; then
+		MAKE_OPT=
+		# let us try again without -O
+		(
+			cd $TMPDIR
+			make -k -j $NPROC
+		) >> config.log
+	fi
+	eval "$TESTPOSTPROC"
+	cat >> config.log <<EOF
+##############################################################################
+## END RUNNING PRELIMINARY TESTS: $(date)
+##############################################################################
+EOF
+}
+
 # run_tests: run all accumulated tests and exec the pertinent
 #   success/failure actions for each one.
 run_tests() {
@@ -451,7 +504,7 @@ SRCDIR=$SRCDIR
 ifneq (\$(KERNELRELEASE),)
 obj-m := $TESTOBJS
 else
-EXTRA_CFLAGS := -Werror -Wno-error=unused-but-set-variable
+EXTRA_CFLAGS := -Werror \$(addprefix -Wno-error=,$REC_DISABLED_WARNINGS)
 S_DRIVERS := $(drv print)
 E_DRIVERS := $(edrv print)
 I_DRIVERS := $(idrv print)
@@ -495,18 +548,10 @@ EOF
 ##############################################################################
 EOF
 	} >> config.log
-	NPROC=$(grep -c processor /proc/cpuinfo)
 	(
 		cd $TMPDIR
-		LANG=C make -O -k -j $NPROC
+		make $MAKE_OPT -k -j $NPROC
 	) >> config.log
-	if grep -q ": invalid option -- 'O'" config.log; then
-		# let us try again without -O
-		(
-			cd $TMPDIR
-			make -k -j $NPROC
-		) >> config.log
-	fi
 	eval "$TESTPOSTPROC"
 	cat >> config.log <<EOF
 ##############################################################################
@@ -923,8 +968,43 @@ done
 update_drivers
 
 #################################################
+# preliminary build tests
+#################################################
+
+reset_tests
+
+broken_buildsystem() {
+	error <<EOF
+It looks like we are not able to build kernel modules for the current
+configuration. Please check 'config.log' for possible clues.
+EOF
+}
+
+  add_test true broken_buildsystem < /dev/null
+
+DISABLED_WARNINGS="unused-but-set-variable attributes packed-not-aligned stringop-truncation missing-attributes"
+REC_DISABLED_WARNINGS=
+disable_warning() {
+	REC_DISABLED_WARNINGS="$1 $REC_DISABLED_WARNINGS"
+}
+
+i=1
+for w in $DISABLED_WARNINGS; do
+	add_named_test "__warn__$i" "disable_warning $w" < /dev/null
+	echo "CFLAGS___warn__$i.o = -Wno-error=$w" >> $TMPDIR/extra.mk
+	i=$(($i+1))
+done
+
+  message " NOTE  " <<EOF
+Running some preliminary tests to customize the build enviroment.
+EOF
+run_preliminary_tests
+
+#################################################
 # create the config.h file
 #################################################
+
+reset_tests
 
 rm -f netmap_linux_config.h
 if [ -e "$SRCDIR/netmap_linux_config.h" ]; then
@@ -941,17 +1021,6 @@ if [ -d "$cache" ] && [ -f "$cache/netmap_linux_config.h" ]; then
 else
 
   # BEGIN_TESTS
-  reset_tests
- 
-broken_buildsystem() {
-	error <<EOF
-It looks like we are not able to build kernel modules for the current
-configuration. Please check 'config.log' for possible clues.
-EOF
-}
-
-  add_test true broken_buildsystem < /dev/null
-
   # check that we can actually find the sources for each
   # configured driver
   drv_source_error()
@@ -1086,7 +1155,8 @@ EOF
   done
 
   # type of the 3rd param of ndo_select_queue
-  add_test 'define SELECT_QUEUE_PARM3 "struct net_device*"' 'define SELECT_QUEUE_PARM3 "void*"' <<EOF
+  # defaults to void* if not defined
+  add_test 'define SELECT_QUEUE_PARM3 "struct net_device*"' <<EOF
 	#include <linux/netdevice.h>
 
 	static u16 myselect(struct net_device *dev, struct sk_buff *skb,
@@ -1096,6 +1166,24 @@ EOF
 		(void)skb;
 		(void)sb_dev;
 		(void)fallback;
+		return 0;
+	}
+	struct net_device_ops ndo = {
+		.ndo_select_queue = myselect,
+	};
+EOF
+
+  # type of the 3rd param of ndo_select_queue
+  # defaults to void* if not defined
+  add_test 'define SELECT_QUEUE_PARM3 "struct net_device*"' <<EOF
+	#include <linux/netdevice.h>
+
+	static u16 myselect(struct net_device *dev, struct sk_buff *skb,
+		struct net_device *sb_dev)
+	{
+		(void)dev;
+		(void)skb;
+		(void)sb_dev;
 		return 0;
 	}
 	struct net_device_ops ndo = {
@@ -1658,6 +1746,15 @@ EOF
 	void
 	dummy(struct timeval *tv) {
 		do_gettimeofday(tv);
+	}
+EOF
+
+   # is vm_fault_t defined?
+   add_test 'have VMFAULT_T' <<EOF
+	#include <linux/mm.h>
+
+	vm_fault_t dummy(void) {
+		return 0;
 	}
 EOF
 
