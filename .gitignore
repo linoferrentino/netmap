@@ -86,3 +86,5 @@ config.mak
 utils/producer
 .cache.mk
 utils/sync_kloop_test
+tests
+netmap.mod

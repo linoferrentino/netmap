@@ -2520,6 +2520,12 @@ EXPORT_SYMBOL(nm_clear_native_flags);
 EXPORT_SYMBOL(linux_netmap_set_ringparam);
 #endif /* NETMAP_LINUX_HAVE_AX25PTR */
 
+EXPORT_SYMBOL(netmap_priv_new);
+EXPORT_SYMBOL(netmap_global_lock);
+EXPORT_SYMBOL(netmap_dtor);
+EXPORT_SYMBOL(netmap_ioctl);
+EXPORT_SYMBOL(netmap_poll);
+
 MODULE_AUTHOR("http://info.iet.unipi.it/~luigi/netmap/");
 MODULE_DESCRIPTION("The netmap packet I/O framework");
 MODULE_LICENSE("Dual BSD/GPL"); /* the code here is all BSD. */
