@@ -1,3 +1,32 @@
+/*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
+ * Copyright (C) 2018 Universita` di Pisa
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ *   1. Redistributions of source code must retain the above copyright
+ *      notice, this list of conditions and the following disclaimer.
+ *   2. Redistributions in binary form must reproduce the above copyright
+ *      notice, this list of conditions and the following disclaimer in the
+ *      documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
@@ -330,6 +359,7 @@ nmport_opt_##o##_key_##k##_ctor(void)					\
 #define nmport_defkey(p, o)	((p)->keys[NPOPT_DESC(o).default_key])
 
 NPOPT_DECL(share, 0)
+	NPKEY_DECL(share, port, NMREQ_OPTK_DEFAULT|NMREQ_OPTK_MUSTSET)
 NPOPT_DECL(extmem, 0)
 	NPKEY_DECL(extmem, file, NMREQ_OPTK_DEFAULT|NMREQ_OPTK_MUSTSET)
 	NPKEY_DECL(extmem, if_num, 0)
@@ -655,7 +685,7 @@ nmport_mmap(struct nmport_d *d)
 		}
 		memset(m, 0, sizeof(*m));
 		if (d->extmem != NULL) {
-			m->mem = (void *)d->extmem->nro_usrptr;
+			m->mem = (void *)((uintptr_t)d->extmem->nro_usrptr);
 			m->size = d->extmem->nro_info.nr_memsize;
 			m->is_extmem = 1;
 		} else {
