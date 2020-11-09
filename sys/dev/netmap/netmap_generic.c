@@ -101,6 +101,7 @@ __FBSDID("$FreeBSD: head/sys/dev/netmap/netmap_generic.c 274353 2014-11-10 20:19
 #include "bsd_glue.h"
 
 #include <linux/ethtool.h>      /* struct ethtool_ops, get_ringparam */
+#include <linux/timer.h>
 #include <linux/hrtimer.h>
 
 static inline struct mbuf *
@@ -134,6 +135,7 @@ nm_os_get_mbuf(struct ifnet *ifp, int len)
 
 
 /* ======================== PERFORMANCE STATISTICS =========================== */
+/*#define RATE_GENERIC*/
 
 #ifdef RATE_GENERIC
 #define IFRATE(x) x
@@ -158,9 +160,9 @@ struct rate_context {
 #define RATE_PRINTK(_NAME_) \
 	printk( #_NAME_ " = %lu Hz\n", (cur._NAME_ - ctx->old._NAME_)/RATE_PERIOD);
 #define RATE_PERIOD  2
-static void rate_callback(unsigned long arg)
+static void rate_callback(struct timer_list *list)
 {
-	struct rate_context * ctx = (struct rate_context *)arg;
+	struct rate_context *ctx = from_timer(ctx, list, timer);
 	struct rate_stats cur = ctx->new;
 	int r;
 
@@ -183,7 +185,7 @@ static void rate_callback(unsigned long arg)
 
 static struct rate_context rate_ctx;
 
-void generic_rate(int txp, int txs, int txi, int rxp, int rxs, int rxi)
+void nm_generic_rate(int txp, int txs, int txi, int rxp, int rxs, int rxi)
 {
 	if (txp) rate_ctx.new.txpkt++;
 	if (txs) rate_ctx.new.txsync++;
@@ -392,7 +394,7 @@ generic_netmap_register(struct netmap_adapter *na, int enable)
 		if (rate_ctx.refcount == 0) {
 			nm_prinf("setup_timer()");
 			memset(&rate_ctx, 0, sizeof(rate_ctx));
-			setup_timer(&rate_ctx.timer, &rate_callback, (unsigned long)&rate_ctx);
+			timer_setup(&rate_ctx.timer, &rate_callback, /*(unsigned long)&rate_ctx*/0);
 			if (mod_timer(&rate_ctx.timer, jiffies + msecs_to_jiffies(1500))) {
 				nm_prerr("Error: mod_timer()");
 			}
