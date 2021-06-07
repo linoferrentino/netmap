@@ -147,7 +147,7 @@
  *   netmap:foo*, or another registration should be done to open at least a
  *   NIC TX queue in netmap mode.
  *
- * + Netmap is not currently able to deal with intercepted trasmit mbufs which
+ * + Netmap is not currently able to deal with intercepted transmit mbufs which
  *   require offloadings like TSO, UFO, checksumming offloadings, etc. It is
  *   responsibility of the user to disable those offloadings (e.g. using
  *   ifconfig on FreeBSD or ethtool -K on Linux) for an interface that is being
@@ -217,6 +217,11 @@ struct netmap_slot {
          * ixgbe and i40e on Linux)
 	 * Set on all but the last slot of a multi-segment packet.
 	 * The 'len' field refers to the individual fragment.
+	 */
+
+#define NS_TXMON	0x0040
+	/* (monitor ports only) the packet comes from the TX
+	 * ring of the monitored port
 	 */
 
 #define	NS_PORT_SHIFT	8
@@ -306,7 +311,7 @@ struct netmap_ring {
 	/* the alignment requirement, in bytes, for the start
 	 * of the packets inside the buffers.
 	 * User programs should take this alignment into
-	 * account when specifing buffer-offsets in TX slots.
+	 * account when specifying buffer-offsets in TX slots.
 	 */
 	const uint64_t	buf_align;
 
@@ -489,7 +494,7 @@ struct netmap_if {
 
 /* Header common to all request options. */
 struct nmreq_option {
-	/* Pointer ot the next option. */
+	/* Pointer to the next option. */
 	uint64_t		nro_next;
 	/* Option type. */
 	uint32_t		nro_reqtype;
@@ -832,7 +837,16 @@ static inline void nm_ldld_barrier(void)
 #define nm_ldld_barrier	atomic_thread_fence_acq
 #define nm_stld_barrier	atomic_thread_fence_seq_cst
 #else  /* !_KERNEL */
+
+#ifdef __cplusplus
+#include <atomic>
+using std::memory_order_release;
+using std::memory_order_acquire;
+
+#else /* __cplusplus */
 #include <stdatomic.h>
+#endif /* __cplusplus */
+
 static inline void nm_stst_barrier(void)
 {
 	atomic_thread_fence(memory_order_release);
@@ -966,7 +980,7 @@ struct nmreq_opt_offsets {
 	/* optional initial offset value, to be set in all slots. */
 	uint64_t		nro_initial_offset;
 	/* number of bits in the lower part of the 'ptr' field to be
-	 * used as the offset field. On output the (possibily larger)
+	 * used as the offset field. On output the (possibly larger)
 	 * effective number of bits is returned.
 	 * 0 means: use the whole ptr field.
 	 */

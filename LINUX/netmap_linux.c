@@ -192,7 +192,11 @@ nm_os_extmem_delete(struct nm_os_extmem *e)
 	for (i = 0; i < e->nr_pages; i++) {
 		if (i < e->mapped)
 			kunmap(e->pages[i]);
+#ifdef NETMAP_LINUX_HAVE_PIN_PAGES
+		unpin_user_page(e->pages[i]);
+#else
 		put_page(e->pages[i]);
+#endif
 	}
 	if (e->pages)
 		nm_os_vfree(e->pages);
@@ -258,7 +262,13 @@ nm_os_extmem_create(unsigned long p, struct nmreq_pools_info *pi, int *perror)
 
 	e->pages = pages;
 
-#ifdef NETMAP_LINUX_HAVE_GUP_4ARGS
+#ifdef NETMAP_LINUX_HAVE_PIN_PAGES
+	res = pin_user_pages_unlocked(
+			p,
+			nr_pages,
+			pages,
+			FOLL_WRITE | FOLL_SPLIT | FOLL_POPULATE);
+#elif defined(NETMAP_LINUX_HAVE_GUP_4ARGS)
 	res = get_user_pages_unlocked(
 			p,
 			nr_pages,
@@ -326,11 +336,11 @@ int nm_iommu_group_id(struct device *dev)
 	int id;
 
 	if (!dev)
-		return 0;
+		return -1;
 
 	grp = iommu_group_get(dev);
 	if (!grp)
-		return 0;
+		return -1;
 
 	id = iommu_group_id(grp);
 
@@ -368,7 +378,7 @@ nm_os_csum_ipv4(struct nm_iphdr *iph)
 }
 
 /* Compute and insert a TCP/UDP checksum over IPv4: 'iph' points to the IPv4
- * header, 'data' points to the TCP/UDP header, 'datalen' is the lenght of
+ * header, 'data' points to the TCP/UDP header, 'datalen' is the length of
  * TCP/UDP header + payload.
  */
 void
@@ -381,7 +391,7 @@ nm_os_csum_tcpudp_ipv4(struct nm_iphdr *iph, void *data,
 }
 
 /* Compute and insert a TCP/UDP checksum over IPv6: 'ip6h' points to the IPv6
- * header, 'data' points to the TCP/UDP header, 'datalen' is the lenght of
+ * header, 'data' points to the TCP/UDP header, 'datalen' is the length of
  * TCP/UDP header + payload.
  */
 void
@@ -1241,7 +1251,7 @@ linux_netmap_fault(struct vm_fault *vmf)
 	struct netmap_priv_d *priv = vma->vm_private_data;
 	struct netmap_adapter *na = priv->np_na;
 	struct page *page;
-	unsigned long off = (vma->vm_pgoff + vmf->pgoff) << PAGE_SHIFT;
+	unsigned long off = vmf->pgoff << PAGE_SHIFT;
 	unsigned long pa, pfn;
 
 	pa = netmap_mem_ofstophys(na->nm_mem, off);
@@ -1292,8 +1302,6 @@ linux_netmap_mmap(struct file *f, struct vm_area_struct *vma)
 			(vma->vm_end - vma->vm_start), memsize);
 	if (off + (vma->vm_end - vma->vm_start) > memsize)
 		return -EINVAL;
-	if (memflags & NETMAP_MEM_EXT)
-		return -ENODEV;
 	if (memflags & NETMAP_MEM_IO) {
 		vm_ooffset_t pa;
 
@@ -2360,7 +2368,6 @@ nm_os_vi_persist(const char *name, struct ifnet **ret)
 	}
 #ifdef CONFIG_NET_NS
 	dev_net_set(ifp, current->nsproxy->net_ns);
-	ifp->features |= NETIF_F_NETNS_LOCAL; /* just for safety */
 #endif
 	ifp->dev.driver = &linux_dummy_drv;
 	error = register_netdev(ifp);
@@ -2495,8 +2502,8 @@ EXPORT_SYMBOL(netmap_bdg_name);		/* the bridge the vp is attached to */
 EXPORT_SYMBOL(netmap_bdg_update_private_data);
 EXPORT_SYMBOL(netmap_vale_create);
 EXPORT_SYMBOL(netmap_vale_destroy);
-EXPORT_SYMBOL(netmap_vale_attach);
-EXPORT_SYMBOL(netmap_vale_detach);
+EXPORT_SYMBOL(netmap_bdg_attach);
+EXPORT_SYMBOL(netmap_bdg_detach);
 EXPORT_SYMBOL(nm_vi_create);
 EXPORT_SYMBOL(nm_vi_destroy);
 #endif /* WITH_VALE */

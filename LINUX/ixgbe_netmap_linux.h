@@ -239,7 +239,7 @@ ixgbe_netmap_reg(struct netmap_adapter *na, int onoff)
 	} else {
 		nm_clear_native_flags(na);
 	}
-	/* XXX SRIOV migth need another 2sec wait */
+	/* XXX SRIOV might need another 2sec wait */
 	if (netif_running(adapter->netdev))
 		NM_IXGBE_UP(adapter);	/* also enables intr */
 	clear_bit(NM_IXGBE_RESETTING, &adapter->state);
@@ -735,7 +735,7 @@ ixgbe_netmap_configure_rx_ring(struct NM_IXGBE_ADAPTER *adapter, int ring_nr)
 
 	lim = na->num_rx_desc - 1 - nm_kr_rxspace(na->rx_rings[ring_nr]);
 
-	for (i = 0; i < na->num_rx_desc; i++) {
+	for (i = 0; i < lim; i++) {
 		/*
 		 * Fill the map and set the buffer address in the NIC ring,
 		 * considering the offset between the netmap and NIC rings
